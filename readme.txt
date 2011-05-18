@@ -57,6 +57,9 @@ If you're interested in protecting other web applications with Duo's two-factor 
 
 == Changelog ==
 
+=1.1.1=
+* Fixes for IE 6, 7, and 8
+
 = 1.1 =
 * Minor tweaks
 
@@ -64,6 +67,9 @@ If you're interested in protecting other web applications with Duo's two-factor 
 * Initial release!
 
 == Upgrade Notice ==
+
+=1.1.1=
+* Fixes for IE 6, 7, and 8
 
 = 1.1 =
 * Minor tweaks
