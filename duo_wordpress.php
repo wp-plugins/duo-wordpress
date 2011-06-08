@@ -3,7 +3,7 @@
 Plugin Name: Duo Two-Factor Authentication
 Plugin URI: https://github.com/duosecurity/duo_wordpress
 Description: This plugin enables Duo two-factor authentication for WordPress logins.
-Version: 1.1.1
+Version: 1.3
 Author: Duo Security
 Author URI: http://www.duosecurity.com
 License: GPL2
@@ -31,10 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
     function duo_sign_request($user, $redirect) {
         $ikey = get_option('duo_ikey');
         $skey = get_option('duo_skey');
-        $duo_host = get_option('duo_host');
-        if (!$duo_host) {
-            $duo_host = 'api-eval.duosecurity.com';
-        }
+        $host = get_option('duo_host');
        
         $username = $user->user_login;
 
@@ -60,7 +57,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
             <script src="<?php echo plugins_url('duo_web/Duo-Web-v1.bundled.min.js', __FILE__); ?>"></script>
             <script>
             Duo.init({
-                'host': <?php echo "'" . $duo_host . "'"; ?>,
+                'host': <?php echo "'" . $host . "'"; ?>,
                 'post_action':'wp-login.php',
                 'sig_request':<?php echo "'" . $request_sig . "'"; ?>
             });
@@ -86,18 +83,18 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
     }
     
     function duo_authenticate_user($user="", $username="", $password="") {
-        if (get_option("duo_ikey") == "" || get_option("duo_skey" == "")) {
+        if (get_option("duo_ikey") == "" || get_option("duo_skey" == "") || get_option("duo_host" == "")) {
             return;
         }
 
-        remove_action('authenticate', 'wp_authenticate_username_password', 20);
-
         if (isset($_POST['sig_response'])) {
+            remove_action('authenticate', 'wp_authenticate_username_password', 20);
             $sig = wp_hash($_POST['u'] . $_POST['exptime']);
             $expire = intval($_POST['exptime']);
 
             if (wp_hash($_POST['uhash']) == wp_hash($sig) && time() < $expire) {
                 $user = get_userdatabylogin($_POST['u']);
+
                 if ($user->user_login == Duo::verifyResponse(get_option('duo_skey'), $_POST['sig_response'])) {
                     wp_set_auth_cookie($user->ID);
                     wp_safe_redirect($_POST['redirect_to']);
@@ -111,6 +108,30 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
         if (strlen($username) > 0) {
             $user = get_userdatabylogin($username);
+
+            $usr = new WP_User($user->ID);
+
+			global $wp_roles;
+			foreach ($wp_roles->get_names() as $r) {
+				$all_roles[strtolower($r)] = ucfirst($r);
+			}
+
+            $duo_roles = get_option('duo_roles', $all_roles); 
+            $duo_auth = false;
+
+            if (!empty($usr->roles) && is_array($usr->roles)) {
+                foreach ($usr->roles as $role) {
+                    if (array_key_exists($role, $duo_roles)) {
+                        $duo_auth = true;
+                    }
+                }
+            }
+
+            if (!$duo_auth) {
+                return;
+            }
+
+            remove_action('authenticate', 'wp_authenticate_username_password', 20);
 
             if (wp_check_password($password, $user->user_pass, $user-ID)) {
                 duo_sign_request($user, $_POST['redirect_to']);
@@ -149,26 +170,75 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
     function duo_settings_host() {
         $host = esc_attr(get_option('duo_host'));
-        if (!$host) {
-            $host = "api-eval.duosecurity.com";
-        }
         echo "<input id='duo_host' name='duo_host' size='40' type='text' value='$host' />";
     }
 
-    function duo_settings_text() {
-        echo "<p>To enable Duo two-factor authentication for your WordPress login, you need to configure your integration settings.</p>";
-        echo "<p>You can retrieve your integration key and secret key by logging in to the Duo administrative interface.</p>";
-        echo "<p>If you don't yet have a Duo account, sign up now for free at <a target='_blank' href='http://www.duosecurity.com'>http://www.duosecurity.com</a>.</p>";
+    function duo_settings_roles() {
+        global $wp_roles;
+
+        $selected = get_option('duo_roles', $wp_roles->get_names());
+
+        foreach ($wp_roles->get_names() as $role) {
+            //create checkbox for each role
+?>
+    <input id="duo_roles" name='duo_roles[<?php echo strtolower($role); ?>]' type='checkbox' value='<?php echo $role; ?>'  <?php if(in_array($role, $selected)) echo 'checked="checked"'; ?> /> <?php echo $role; ?> <br />
+<?php
+        }
+
     }
+
+    function duo_roles_validate($options) {
+        //return empty array
+        if (!is_array($options) || empty($options) || (false === $options)) {
+            return array();
+        }
+
+        global $wp_roles;
+        $valid_roles = $wp_roles->get_names();
+        //otherwise validate each role and then return the array
+        foreach ($options as $opt) {
+            if (!in_array($opt, $valid_roles)) {
+                unset($options[$opt]);
+            }
+        }
+        return $options;
+    }
+
+    function duo_settings_text() {
+        echo "<p>If you don't yet have a Duo account, sign up now for free at <a target='_blank' href='http://www.duosecurity.com'>http://www.duosecurity.com</a>.</p>";
+        echo "<p>To enable Duo two-factor authentication for your WordPress login, you need to configure your integration settings.</p>";
+        echo "<p>You can retrieve your integration key, secret key, and API hostname by logging in to the Duo administrative interface.</p>";
+    }
+
+    function duo_ikey_validate($ikey){
+        if (strlen($ikey) != 20) {
+            add_settings_error('duo_ikey', '', 'Integration key is not valid');
+            return "";
+        } else {
+            return $ikey;
+        }
+    }
+    
+    function duo_skey_validate($skey){
+        if (strlen($skey) != 40) {
+            add_settings_error('duo_skey', '', 'Secret key is not valid');
+            return "";
+        } else {
+            return $skey;
+        }
+    }
+
 
     function duo_admin_init() {
         add_settings_section('duo_settings', 'Main Settings', 'duo_settings_text', 'duo_settings');
-        add_settings_field('duo_ikey', 'Integration Key', 'duo_settings_ikey', 'duo_settings', 'duo_settings');
-        add_settings_field('duo_skey', 'Secret Key', 'duo_settings_skey', 'duo_settings', 'duo_settings');
-        add_settings_field('duo_host', 'Duo API Host', 'duo_settings_host', 'duo_settings', 'duo_settings');
-        register_setting('duo_settings', 'duo_ikey');
-        register_setting('duo_settings', 'duo_skey');
+        add_settings_field('duo_ikey', 'Integration key', 'duo_settings_ikey', 'duo_settings', 'duo_settings');
+        add_settings_field('duo_skey', 'Secret key', 'duo_settings_skey', 'duo_settings', 'duo_settings');
+        add_settings_field('duo_host', 'API hostname', 'duo_settings_host', 'duo_settings', 'duo_settings');
+        add_settings_field('duo_roles', 'Enable for roles:', 'duo_settings_roles', 'duo_settings', 'duo_settings');
+        register_setting('duo_settings', 'duo_ikey', 'duo_ikey_validate');
+        register_setting('duo_settings', 'duo_skey', 'duo_skey_validate');
         register_setting('duo_settings', 'duo_host');
+        register_setting('duo_settings', 'duo_roles', 'duo_roles_validate');
     }
 
     function duo_add_page() {
