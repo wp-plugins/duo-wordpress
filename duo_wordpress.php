@@ -1,9 +1,9 @@
 <?php
 /*
 Plugin Name: Duo Two-Factor Authentication
-Plugin URI: https://github.com/duosecurity/duo_wordpress
+Plugin URI: http://wordpress.org/extend/plugins/duo-wordpress/
 Description: This plugin enables Duo two-factor authentication for WordPress logins.
-Version: 1.4.1
+Version: 1.4.2
 Author: Duo Security
 Author URI: http://www.duosecurity.com
 License: GPL2
@@ -96,7 +96,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
     }
     
     function duo_authenticate_user($user="", $username="", $password="") {
-        if ( defined('XMLRPC_REQUEST') && XMLRPC_REQUEST ) 
+        // play nicely with other plugins if they have higher priority than us
+        if (is_a($user, 'WP_User')) {
+            return $user;
+        }
+
+        if (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) 
             return; //allows the XML-RPC protocol for remote publishing
 
         if (duo_get_option("duo_ikey", "") == "" || duo_get_option("duo_skey", "") == "" || duo_get_option("duo_host", "") == "") {
@@ -104,17 +109,17 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
         }
 
         if (isset($_POST['sig_response'])) {
+            // secondary auth
             remove_action('authenticate', 'wp_authenticate_username_password', 20);
+
             $sig = wp_hash($_POST['u'] . $_POST['exptime']);
             $expire = intval($_POST['exptime']);
 
             if (wp_hash($_POST['uhash']) == wp_hash($sig) && time() < $expire) {
-                $user = get_userdatabylogin($_POST['u']);
+                $user = get_user_by('login', $_POST['u']);
 
                 if ($user->user_login == Duo::verifyResponse(duo_get_option('duo_skey'), $_POST['sig_response'])) {
-                    wp_set_auth_cookie($user->ID);
-                    wp_safe_redirect($_POST['redirect_to']);
-                    exit();
+                    return $user;
                 }
             } else {
                 $user = new WP_Error('Duo authentication_failed', __('<strong>ERROR</strong>: Failed or expired two factor authentication'));
@@ -123,18 +128,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
         }
 
         if (strlen($username) > 0) {
-            $user = get_userdatabylogin($username);
-
+            // primary auth
+            $user = get_user_by('login', $username);
             if (!$user) {
                 return;
             }
 
-            $usr = new WP_User($user->ID);
-
-			global $wp_roles;
-			foreach ($wp_roles->get_names() as $k=>$r) {
-				$all_roles[$k] = $r;
-			}
+            global $wp_roles;
+            foreach ($wp_roles->get_names() as $k=>$r) {
+                $all_roles[$k] = $r;
+            }
 
             $duo_roles = duo_get_option('duo_roles', $all_roles); 
             $duo_auth = false;
@@ -150,8 +153,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
                 $duo_auth = true;
             }
 
-            if (!empty($usr->roles) && is_array($usr->roles)) {
-                foreach ($usr->roles as $role) {
+            if (!empty($user->roles) && is_array($user->roles)) {
+                foreach ($user->roles as $role) {
                     if (array_key_exists($role, $duo_roles)) {
                         $duo_auth = true;
                     }
@@ -163,32 +166,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
             }
 
             remove_action('authenticate', 'wp_authenticate_username_password', 20);
-
-            if (duo_check_login($username, $password, $user->ID)) {
+            $user = wp_authenticate_username_password(NULL, $username, $password);
+            if (!is_a($user, 'WP_User')) {
+                // on error, return said error (and skip the remaining plugin chain)
+                return $user;
+            } else {
                 duo_sign_request($user, $_POST['redirect_to']);
                 exit();
-            } else {
-                $user = new WP_Error('authentication_failed', __('<strong>ERROR</strong>: Invalid username or incorrect password.'));
-                return $user;
             }
         }
     }
-
-	/* 
-	 * function duo_check_login
-	 * args: username and password
-	 * returns: true - if password matches one on file for user
-	 * returns: false - all other cases
-	 */
-	function duo_check_login($username, $password) {
-		$user = get_userdatabylogin($username);
-
-		if (wp_check_password($password, $user->user_pass, $user->ID)) {
-			return true;
-		}
-
-		return false;
-	}
 
     function duo_settings_page() {
 ?>
@@ -286,13 +273,36 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
         }
     }
 
+    function duo_settings_xmlrpc() {
+        $val = '';
+        if(duo_get_option('duo_xmlrpc', 'off') == 'off') {
+            $val = "checked='checked'";
+        }
+        echo "<input id='duo_xmlrpc' name='duo_xmlrpc' type='checkbox' value='off' $val /> Yes<br />";
+        echo "Using XML-RPC bypasses two-factor authentication and makes your website less secure. We recommend only using the WordPress web interface for managing your WordPress website.";
+    }
+
+    function duo_xmlrpc_validate($option) {
+        if($option == 'off') {
+            return $option;
+        }
+        return 'on';
+    }
 
     function duo_admin_init() {
         if (is_multisite()) {
+            global $wp_roles;
+            $roles = $wp_roles->get_names();
+            $allroles = array();
+            foreach($roles as $key=>$role) {
+                $allroles[before_last_bar($key)] = before_last_bar($role);
+            }
+
             add_site_option('duo_ikey', '');
             add_site_option('duo_skey', '');
             add_site_option('duo_host', '');
-            add_site_option('duo_roles', '');
+            add_site_option('duo_roles', $allroles);
+            add_site_option('duo_xmlrpc', 'off');
         }
         else {
             add_settings_section('duo_settings', 'Main Settings', 'duo_settings_text', 'duo_settings');
@@ -300,10 +310,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
             add_settings_field('duo_skey', 'Secret key', 'duo_settings_skey', 'duo_settings', 'duo_settings');
             add_settings_field('duo_host', 'API hostname', 'duo_settings_host', 'duo_settings', 'duo_settings');
             add_settings_field('duo_roles', 'Enable for roles:', 'duo_settings_roles', 'duo_settings', 'duo_settings');
+            add_settings_field('duo_xmlrpc', 'Disable XML-RPC (recommended)', 'duo_settings_xmlrpc', 'duo_settings', 'duo_settings');
             register_setting('duo_settings', 'duo_ikey', 'duo_ikey_validate');
             register_setting('duo_settings', 'duo_skey', 'duo_skey_validate');
             register_setting('duo_settings', 'duo_host');
             register_setting('duo_settings', 'duo_roles', 'duo_roles_validate');
+            register_setting('duo_settings', 'duo_xmlrpc', 'duo_xmlrpc_validate');
         }
 
     }
@@ -318,6 +330,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
             <tr><th>Secret key</th><td><?php duo_settings_skey();?></td></tr>
             <tr><th>API hostname</th><td><?php duo_settings_host();?></td></tr>
             <tr><th>Roles</th><td><?php duo_settings_roles();?></td></tr>
+            <tr><th>Disable XML-RPC</th><td><?php duo_settings_xmlrpc();?></td></tr>
         </table>
 <?php
     }
@@ -343,7 +356,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
             $result = update_site_option('duo_roles', $roles);
         }
 
-
+        if(isset($_POST['duo_xmlrpc'])) {
+            $xmlrpc = $_POST['duo_xmlrpc'];
+            $result = update_site_option('duo_xmlrpc', $roles);
+        }
     }
 
     function duo_add_page() {
@@ -365,6 +381,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
     /*-------------XML-RPC Features-----------------*/
     
+    if(duo_get_option('duo_xmlrpc', 'off') == 'off') {
+        add_filter( 'xmlrpc_enabled', '__return_false' );
+    }
 
     /*-------------Register WordPress Hooks-------------*/
 
