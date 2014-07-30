@@ -29,7 +29,7 @@ Protect your WordPress website in minutes with Duo.
 == Installation ==
 
 Integrating Duo two-factor authentication with WordPress is a breeze.
-See [our instructions] (https://www.duosecurity.com/docs/wordpress) at duosecurity.com
+See [our instructions](https://www.duosecurity.com/docs/wordpress) at duosecurity.com
 
 == Frequently Asked Questions ==
 
