@@ -28,21 +28,8 @@ Protect your WordPress website in minutes with Duo.
 
 == Installation ==
 
-Integrating Duo two-factor authentication with WordPress is a breeze. Follow these quick installation steps:
-
-1. Sign up for a free Duo account at [duosecurity.com](https://www.duosecurity.com) and follow the activation instructions. 
-
-2. From your Duo administrative interface, add an integration and select “WordPress” as the Integration Type. You’ll need the "Integration Key," "Secret Key," and “API hostname” values shown here when you set up the Duo plugin in WordPress.
-
-3. Also from the Duo administrative interface, you can check which user roles you'd like to require use Duo two-factor authentication.
-
-4. From your WordPress dashboard, install and activate this Duo WordPress plugin.
-
-5. In the Duo WordPress plugin settings, fill in the "Integration Key," "Secret Key," and “API hostname” with the values provided in the Duo administrative interface for the WordPress integration that you added in Step 2. 
-All done!  
-Log out of your WordPress instance. When you log back in, you'll be prompted to enroll in Duo and authenticate using Duo's two-factor service.
-
-Get [more detailed instructions](https://www.duosecurity.com/docs/wordpress) at duosecurity.com
+Integrating Duo two-factor authentication with WordPress is a breeze.
+See [our instructions] (https://www.duosecurity.com/docs/wordpress) at duosecurity.com
 
 == Frequently Asked Questions ==
 
