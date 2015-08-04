@@ -45,10 +45,24 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
         duo_debug_log("Displaying iFrame. Username: $username cookie domain: " . COOKIE_DOMAIN . " redirect_to_url: $redirect ikey: $ikey host: $host duo_time: $duo_time");
         duo_debug_log("Duo request signature: $request_sig");
 
+        $post_action = esc_url(site_url('wp-login.php', 'login_post'));
+        $iframe_attributes = array(
+            'id' => 'duo_iframe',
+            'data-host' => $host,
+            'data-sig-request' => $request_sig,
+            'data-post-action' => $post_action,
+            'frameborder' => '0',
+        );
+        $iframe_attributes = array_map(function($key, $value) {
+            return sprintf('%s="%s"', $key, $value);
+        }, array_keys($iframe_attributes), array_values($iframe_attributes));
+        $iframe_attributes = implode(" ", $iframe_attributes);
+
 ?>
     <html>
         <head>
             <meta http-equiv="X-UA-Compatible" content="IE=edge">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <?php
                 global $wp_version;
                 if(version_compare($wp_version, "3.3", "<=")){
@@ -87,6 +101,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
                 #duo_iframe {
                     height: 500px;
                     width: 100%;
+                    min-width: 304px;
+                    max-width: 620px;
                 }
                 div {
                     background: transparent;
@@ -95,24 +111,19 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
         </head>
 
         <body class="login" >
-            <script src="<?php echo plugins_url('duo_web/Duo-Web-v1.bundled.min.js?v=2', __FILE__); ?>"></script>
-            <script>
-            Duo.init({
-                'host': <?php echo "'" . $host . "'"; ?>,
-                'post_action': '<?php echo esc_url(site_url('wp-login.php', 'login_post')) ?>',
-                'sig_request':<?php echo "'" . $request_sig . "'"; ?>
-            });
-            </script>
+            <script src="<?php echo plugins_url('duo_web/Duo-Web-v2.min.js?v=2', __FILE__); ?>"></script>
 
             <h1 class="centerHeader">
                 <a href="http://wordpress.org/" id="WPLogo" title="Powered by WordPress"><?php echo get_bloginfo('name'); ?></a>
             </h1>
             <div class="iframe_div">
-                <iframe id="duo_iframe" frameborder="0" allowtransparency="true"></iframe>
+                <iframe <?php echo $iframe_attributes ?>></iframe>
             </div>
             <form method="POST" style="display:none;" id="duo_form">
+                <?php if (isset($_POST['rememberme'])) { ?>
                 <input type="hidden" name="rememberme" value="<?php echo esc_attr($_POST['rememberme'])?>"/>
                 <?php
+                }
                 if (isset($_REQUEST['interim-login'])){
                     echo '<input type="hidden" name="interim-login" value="1"/>';
                 }
